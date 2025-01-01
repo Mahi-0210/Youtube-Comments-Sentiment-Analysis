@@ -1,0 +1,121 @@
+import googleapiclient.discovery
+import time
+import json
+import csv
+from textblob import TextBlob
+
+# Function to fetch all comments from a YouTube video
+def fetch_comments(video_id, api_key):
+    youtube = googleapiclient.discovery.build('youtube', 'v3', developerKey=api_key)
+    comments_data = []
+    next_page_token = None
+    total_fetched = 0
+
+    while True:
+        try:
+            # Request to fetch comments
+            request = youtube.commentThreads().list(
+                part='snippet',
+                videoId=video_id,
+                textFormat='plainText',
+                pageToken=next_page_token,
+                maxResults=100  # Fetch the maximum number of comments per page
+            )
+            response = request.execute()
+
+            # Extract comments
+            for item in response['items']:
+                snippet = item['snippet']['topLevelComment']['snippet']
+                comment = snippet['textDisplay']
+                author_name = snippet['authorDisplayName']
+                author_url = snippet.get('authorChannelUrl', 'N/A')  # Handle cases where URL is not available
+
+                # Add to comments list
+                comments_data.append({
+                    'author': author_name,
+                    'author_url': author_url,
+                    'comment': comment,
+                    'sentiment': analyze_sentiment(comment)  # Add sentiment
+                })
+
+            # Update the total fetched count
+            total_fetched += len(response['items'])
+            print(f"Fetched {total_fetched} comments so far...")
+
+            # Check if there is a next page
+            next_page_token = response.get('nextPageToken')
+            if not next_page_token:
+                print(f"Finished fetching comments. Total: {total_fetched}")
+                break  # Exit if no more pages
+
+            # Sleep to avoid hitting rate limits
+            time.sleep(1)
+
+        except Exception as e:
+            print(f"Error fetching comments: {e}")
+            break
+
+    return comments_data
+
+
+# Function to analyze sentiment of a comment
+def analyze_sentiment(comment):
+    blob = TextBlob(comment)
+    polarity = blob.sentiment.polarity
+    if polarity > 0:
+        return 'Positive'
+    elif polarity < 0:
+        return 'Negative'
+    else:
+        return 'Neutral'
+
+
+# Function to save comments to CSV
+def save_to_csv(comments, filename="comments.csv"):
+    with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+        fieldnames = ['author', 'author_url', 'comment', 'sentiment']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(comments)
+    print(f"Comments saved to {filename}")
+
+
+# Function to save comments to JSON
+def save_to_json(comments, filename="comments.json"):
+    with open(filename, 'w', encoding='utf-8') as jsonfile:
+        json.dump(comments, jsonfile, indent=4, ensure_ascii=False)
+    print(f"Comments saved to {filename}")
+
+
+# Function to segregate comments by sentiment
+def segregate_comments(comments):
+    sentiments = {'Positive': [], 'Negative': [], 'Neutral': []}
+    for comment in comments:
+        sentiment = comment['sentiment']
+        sentiments[sentiment].append(comment)
+    return sentiments
+
+
+# Example usage
+video_id = '4yEIZ9KZ_aQ'  # Replace with your video ID
+api_key = 'AIzaSyB9f3arKUzJc4Z-6cITAMkV4xxPdNTXxDA'  # Replace with your API key
+
+# Fetch comments
+comments = fetch_comments(video_id, api_key)
+
+# Save all comments
+save_to_csv(comments, "all_comments.csv")
+save_to_json(comments, "all_comments.json")
+
+# Segregate comments
+segregated_comments = segregate_comments(comments)
+
+# Save segregated comments
+for sentiment, sentiment_comments in segregated_comments.items():
+    save_to_csv(sentiment_comments, f"{sentiment.lower()}_comments.csv")
+    save_to_json(sentiment_comments, f"{sentiment.lower()}_comments.json")
+
+# Print summary
+print("\nSummary of Comments:")
+for sentiment, sentiment_comments in segregated_comments.items():
+    print(f"{sentiment}: {len(sentiment_comments)} comments")
